@@ -28,7 +28,7 @@ pub struct RenderOpts {
 }
 impl RenderOpts {
     pub fn background_colour(&self, ls: &LetterResult) -> Option<Color> {
-        self.cell_background_colours[ls]
+        self.cell_background_colours.get(ls).cloned().unwrap_or(None)
     }
 
     pub fn for_frame(g: &GameOptions, f: &Frame) -> Self {
@@ -49,10 +49,10 @@ impl RenderOpts {
             letter_cell_width: 6,
 
             cell_background_colours: HashMap::from([
-                (LetterResult::Correct, Option::Some(Color::LightGreen)),
-                (LetterResult::Empty, Option::None),
-                (LetterResult::Absent, Option::None),
-                (LetterResult::Present, Option::Some(Color::LightYellow)),
+                (LetterResult::Correct, Some(Color::LightGreen)),
+                (LetterResult::Empty, None),
+                (LetterResult::Absent, None),
+                (LetterResult::Present, Some(Color::LightYellow)),
             ]),
         };
 
@@ -130,9 +130,9 @@ pub fn draw_game(
 
                     // render the grid cell
                     let letter = guess.value_at(x);
-                    if letter.0.is_some() && letter.1.is_some() {
+                    if let (Some(_), Some(lr)) = (letter.0, letter.1) {
                         let colour = render_opts
-                            .background_colour(&letter.1.unwrap())
+                            .background_colour(&lr)
                             .unwrap_or(render_opts.background_colour);
 
                         // this doesn't fill the cell, need to implement a version that fills the cell

@@ -1,6 +1,6 @@
 use std::cmp::PartialEq;
 
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub enum LetterResult {
     Empty,
     Absent,
@@ -8,7 +8,7 @@ pub enum LetterResult {
     Correct,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct GameOptions {
     dictionary_path: String,
     pub word_length: u16,
@@ -17,7 +17,7 @@ pub struct GameOptions {
 
 impl GameOptions {
     pub fn default() -> Self {
-        GameOptions {
+        Self {
             dictionary_path: String::from("scrabble.txt"),
             word_length: 5,
             max_guesses: 6,
@@ -35,7 +35,7 @@ impl GameOptions {
         "elbow"
     }
 }
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Guess {
     max_length: u16,
     letters: Vec<char>,
@@ -44,27 +44,27 @@ pub struct Guess {
 
 impl Guess {
     fn new(max_length: u16) -> Self {
-        Guess {
+        Self {
             max_length,
-            letters: vec![],
-            result: Option::None,
+            letters: Vec::new(),
+            result: None,
         }
     }
 
     fn add_letter(&mut self, c: char) {
-        if (self.remaining_letters() > 0) {
+        if self.remaining_letters() > 0 {
             self.letters.push(c);
         }
     }
 
     fn delete_letter(&mut self) {
-        if (!self.is_empty()) {
+        if !self.is_empty() {
             self.letters.pop();
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.letters.len() == 0
+        self.letters.is_empty()
     }
 
     pub fn is_complete(&self) -> bool {
@@ -76,43 +76,37 @@ impl Guess {
     }
 
     fn guess_string(&self) -> String {
-        self.letters.iter().collect::<String>()
+        self.letters.iter().collect()
     }
 
     fn set_result(&mut self, result: &Vec<LetterResult>) {
-        self.result = Option::Some(result.clone());
+        self.result = Some(result.clone());
     }
 
     pub fn values(&self) -> Vec<(Option<char>, Option<LetterResult>)> {
-        let mut result:Vec<(Option<char>, Option<LetterResult>)> = vec![];
-
-        for i in 0..self.max_length {
-            result[i as usize] = self.value_at(i);
-        }
-
-        result
+        (0..self.max_length)
+            .map(|i| self.value_at(i))
+            .collect()
     }
 
     pub fn value_at(&self, i: u16) -> (Option<char>, Option<LetterResult>) {
-        let letters = &self.letters;
-
         if self.is_complete() {
             let result = self.result.as_ref().unwrap();
             (
-                Option::Some(letters[i as usize]),
-                Option::Some(result[i as usize].clone()),
+                self.letters.get(i as usize).copied(),
+                result.get(i as usize).cloned(),
             )
         } else {
-            if (i < letters.len() as u16) {
-                (Option::Some(letters[i as usize]), Option::None)
+            if (i < self.letters.len() as u16) {
+                (Some(self.letters[i as usize]), None)
             } else {
-                (Option::None, Option::None)
+                (None, None)
             }
         }
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 enum GameState {
     Active,
     Won,
@@ -137,7 +131,7 @@ impl GameData {
             .map(|_| Guess::new(game_opts.word_length))
             .collect();
 
-        GameData {
+        Self {
             game_state: GameState::Active,
             game_options: game_opts,
             answer: String::from(word),
@@ -147,19 +141,19 @@ impl GameData {
     }
 
     fn active_guess(&mut self) -> Option<&mut Guess> {
-        if self.game_state == GameState::Active {
-            return Option::Some(&mut self.guesses[self.active_guess_idx as usize]);
+        if matches!(self.game_state, GameState::Active) {
+            Some(&mut self.guesses[self.active_guess_idx as usize])
+        } else {
+            None
         }
-
-        return Option::None;
     }
 
     fn is_active(&self) -> bool {
-        self.game_state == GameState::Active
+        matches!(self.game_state, GameState::Active)
     }
 
     pub fn add_letter(&mut self, val: char) -> bool {
-        if (!self.is_active()) {
+        if !self.is_active() {
             return false;
         }
 
@@ -173,11 +167,10 @@ impl GameData {
     }
 
     pub fn delete_letter(&mut self) -> bool {
-        if (!self.is_active()) {
+        if !self.is_active() {
             return false;
         }
 
-        // can unrap here because we've checked the is_active
         let guess = self.active_guess().unwrap();
         if (guess.is_empty()) {
             return false;
@@ -189,7 +182,7 @@ impl GameData {
     }
 
     pub fn submit_word(&mut self) -> bool {
-        if (!self.is_active()) {
+        if !self.is_active() {
             return false;
         }
 
@@ -198,23 +191,20 @@ impl GameData {
         let answer = { self.answer.clone() };
 
         let guess = self.active_guess().unwrap();
-        // can't complete a turn that is already complete
         if (guess.is_complete()) {
             return false;
         }
 
-        // can't complete a turn that hasn't got the required number of letters
         if guess.remaining_letters() > 0 {
             return false;
         }
 
-        let mut answer_chars: Vec<_> = { answer.chars().collect() };
+        let mut answer_chars: Vec<_> = { answer.to_ascii_uppercase().chars().collect() };
         let mut result = vec![LetterResult::Absent; letter_count];
 
         let guess_chars: Vec<_> = { guess.guess_string().chars().collect() };
 
 
-        // First pass: check for correct (green)
         for i in 0..guess_chars.len() {
             if guess_chars[i] == answer_chars[i] {
                 result[i] = LetterResult::Correct;
@@ -222,7 +212,6 @@ impl GameData {
             }
         }
 
-        // Second pass: check for present (yellow)
         for (i, &g) in guess_chars.iter().enumerate() {
             if g != char::MIN {
                 if let Some(pos) = answer_chars.iter().position(|&a| a == g) {
@@ -239,7 +228,6 @@ impl GameData {
         } else {
         }
 
-        // we've finished with that guess struct, move to the next one in the list for processing
         self.active_guess_idx += 1;
         if self.active_guess_idx == self.game_options.max_guesses {
             self.game_state = GameState::Won;
