@@ -1,5 +1,6 @@
 mod game;
 mod render;
+mod dictionary;
 
 use std::error;
 use ratatui::crossterm::event;

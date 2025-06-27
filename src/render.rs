@@ -1,9 +1,9 @@
 use crate::game::{GameOptions, LetterResult};
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::prelude::Color;
+use ratatui::prelude::{Color, Line};
 use ratatui::symbols::Marker;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block};
 use ratatui::Frame;
 use std::collections::HashMap;
 
@@ -116,41 +116,26 @@ pub fn draw_game(
                         + (y * render_opts.box_spacing))
                         + (y * 2 * render_opts.grid_line_width);
 
+                    let letter = guess.value_at(x);
+                    let mut colour = render_opts.grid_colour;
+
+                    if let (Some(_), Some(lr)) = (letter.0, letter.1) {
+                        // if there is a result provided then check that we might want to change
+                        // the cell background colour
+                        colour = render_opts
+                            .background_colour(&lr)
+                            .unwrap_or(colour);
+                    }
+
                     let cell = &Rectangle {
                         x: x_cell as f64,
                         y: y_cell as f64,
                         width: render_opts.letter_cell_width as f64,
                         height: render_opts.letter_cell_height as f64,
-                        color: render_opts.grid_colour,
+                        color: colour,
                     };
 
                     ctx.draw(cell);
-
-                    ctx.layer();
-
-                    // render the grid cell
-                    let letter = guess.value_at(x);
-                    if let (Some(_), Some(lr)) = (letter.0, letter.1) {
-                        let colour = render_opts
-                            .background_colour(&lr)
-                            .unwrap_or(render_opts.background_colour);
-
-                        // this doesn't fill the cell, need to implement a version that fills the cell
-                        ctx.draw(&Rectangle {
-                            x: (x_cell + render_opts.grid_line_width) as f64,
-                            y: (y_cell + render_opts.grid_line_width) as f64,
-                            width: (render_opts.letter_cell_width
-                                - (2 * render_opts.grid_line_width))
-                                as f64,
-                            height: (render_opts.letter_cell_height
-                                - (2 * render_opts.grid_line_width))
-                                as f64,
-                            color: colour,
-                        });
-                        // fill the cell with the appropriate background colour for the letter
-                    }
-
-                    ctx.layer();
 
                     ctx.print(
                         (x_cell + (render_opts.letter_cell_width / 2) - 1) as f64,
@@ -168,6 +153,9 @@ pub fn draw_game(
 
     frame.render_widget(canvas, layout[0]);
 
-    let p = Paragraph::new("New Game: CTRL-N, Quit: CTRL-Q | ESC, Options: CTRL-O");
+    let p = Block::default()
+        .title(Line::from("New Game: CTRL-N, Quit: CTRL-Q | ESC, Options: CTRL-O").left_aligned())
+        .title(Line::from(format!("{}", game_opts.dictionary)).right_aligned());
+
     frame.render_widget(p, layout[1]);
 }

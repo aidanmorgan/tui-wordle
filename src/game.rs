@@ -1,4 +1,22 @@
 use std::cmp::PartialEq;
+use std::error;
+use std::fmt::{Debug, Display, Formatter};
+use std::rc::Rc;
+use crate::dictionary::{get_dictionaries, Dictionary};
+
+#[derive(Debug)]
+pub enum GameError {
+    FileLoadError,
+    DictionaryError
+}
+impl error::Error for GameError {}
+
+impl Display for GameError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub enum LetterResult {
@@ -8,33 +26,77 @@ pub enum LetterResult {
     Correct,
 }
 
-#[derive(Default, Clone, Debug)]
+
+#[derive(Debug)]
 pub struct GameOptions {
-    dictionary_path: String,
     pub word_length: u16,
     pub max_guesses: u16,
+    pub dictionary: Rc<Dictionary>
+}
+
+
+impl Clone for GameOptions {
+    fn clone(&self) -> Self {
+        GameOptions {
+            dictionary: Rc::clone(&self.dictionary),
+            max_guesses: self.max_guesses,
+            word_length: self.word_length
+        }
+    }
+}
+
+impl Default for GameOptions {
+    fn default() -> Self {
+        let dictionaries = get_dictionaries();
+
+        let default_dictionary = dictionaries.iter()
+            .filter(|x| x.name == "Wordle")
+            .next();
+
+        if let Some(x) = default_dictionary {
+            Self {
+                word_length: 5,
+                max_guesses: 6,
+                dictionary: Rc::clone(x)
+            }
+        }
+        else {
+            panic!("No default dictionary found")
+        }
+    }
 }
 
 impl GameOptions {
-    pub fn default() -> Self {
-        Self {
-            dictionary_path: String::from("scrabble.txt"),
-            word_length: 5,
-            max_guesses: 6,
+    pub fn random_word(&self) -> Result<String, GameError> {
+        let randon_word = self.dictionary.random_word();
+
+        if let Ok(y) = randon_word {
+            return Ok(y);
+        }
+        else {
+            return Err(GameError::DictionaryError);
+        }
+
+    }
+
+    fn set_dictionary(&mut self, name: &str, length: u8) -> Result<(), GameError>{
+        let dictionaries = get_dictionaries();
+
+        if let Some(x) =  dictionaries.iter()
+            .filter(|x| x.name == name && x.length == length)
+            .next() {
+
+            self.dictionary = Rc::clone(x);
+
+            Ok(())
+        }
+        else {
+            Err(GameError::DictionaryError)
         }
     }
 
-    fn clone(&self) -> Self {
-        GameOptions {
-            dictionary_path: String::from(&self.dictionary_path),
-            word_length: self.word_length,
-            max_guesses: self.max_guesses,
-        }
-    }
-    pub fn random_word(&self) -> &str {
-        "elbow"
-    }
 }
+
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Guess {
     max_length: u16,
@@ -125,6 +187,10 @@ pub struct GameData {
 impl GameData {
     pub fn new(opts: &GameOptions) -> Self {
         let word = opts.random_word();
+        if(word.is_err()) {
+            panic!()
+        }
+
         let game_opts = opts.clone();
 
         let guesses = (0..opts.max_guesses)
@@ -134,7 +200,7 @@ impl GameData {
         Self {
             game_state: GameState::Active,
             game_options: game_opts,
-            answer: String::from(word),
+            answer: word.unwrap().clone(),
             guesses,
             active_guess_idx: 0,
         }
@@ -203,8 +269,6 @@ impl GameData {
         let mut result = vec![LetterResult::Absent; letter_count];
 
         let guess_chars: Vec<_> = { guess.guess_string().chars().collect() };
-
-
         for i in 0..guess_chars.len() {
             if guess_chars[i] == answer_chars[i] {
                 result[i] = LetterResult::Correct;
