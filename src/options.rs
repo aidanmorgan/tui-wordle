@@ -1,21 +1,33 @@
-use crate::dictionary::{get_dictionaries, Dictionary};
-use crate::game::GameOptions;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::text::Line;
-use ratatui::widgets::Block;
-use ratatui::Frame;
 use std::sync::Arc;
-use tui_big_text::{BigText, PixelSize};
+use thiserror::Error;
+use crate::dictionary::{get_dictionaries, Dictionary};
+use crate::game::{GameError, GameOptions};
 
+/// Error type for options operations
+#[derive(Debug, Error)]
+pub enum OptionsError {
+    #[error("Dictionary not found")]
+    DictionaryNotFound,
+
+    #[error("Game error: {0}")]
+    GameError(#[from] GameError),
+}
+
+/// Represents the state of the options screen
 #[derive(Debug)]
 pub struct OptionData {
-    dictionary_name: String,
-    dictionary_length: u8,
-    max_tries: u16,
+    /// Name of the selected dictionary
+    pub(crate) dictionary_name: String,
+    /// Length of words in the selected dictionary
+    pub(crate) dictionary_length: u8,
+    /// Maximum number of tries allowed
+    pub(crate) max_tries: u16,
+    /// Available dictionaries
     dictionaries: Vec<Arc<Dictionary>>,
 }
 
 impl OptionData {
+    /// Creates a new OptionData with default values
     pub fn new() -> Self {
         Self {
             dictionary_name: String::from("Wordle"),
@@ -24,78 +36,55 @@ impl OptionData {
             dictionaries: get_dictionaries()
         }
     }
+
+    /// Finds the current dictionary index
+    fn find_dictionary_index(&self) -> Result<usize, OptionsError> {
+        self.dictionaries
+            .iter()
+            .position(|dict| dict.name == self.dictionary_name && dict.length == self.dictionary_length)
+            .ok_or(OptionsError::DictionaryNotFound)
+    }
+
+    /// Selects the next dictionary in the list
     pub fn next(&mut self) {
-        let idx = self.dictionaries
-            .iter()
-            .position(|x| x.name == self.dictionary_name && self.dictionary_length == x.length)
-            .expect("Current dictionary not found");
-        let next = (idx + 1) % self.dictionaries.len();
-
-        let dict = &self.dictionaries[next];
-        self.dictionary_name = dict.name.clone();
-        self.dictionary_length = dict.length;
-    }
-
-    pub fn previous(&mut self) {
-        let mut idx = self.dictionaries
-            .iter()
-            .position(|x| x.name == self.dictionary_name && self.dictionary_length == x.length)
-            .expect("Current dictionary not found");
-
-        if idx == 0 {
-            idx = self.dictionaries.len() - 1;
-        } else {
-            idx -= 1;
+        if let Ok(idx) = self.find_dictionary_index() {
+            let next = (idx + 1) % self.dictionaries.len();
+            let dict = &self.dictionaries[next];
+            self.dictionary_name = dict.name.clone();
+            self.dictionary_length = dict.length;
         }
-
-        let dict = &self.dictionaries[idx];
-        self.dictionary_name = dict.name.clone();
-        self.dictionary_length = dict.length;
     }
 
-    pub fn apply(&self, opts: &mut GameOptions) -> Result<(), Box<dyn std::error::Error>> {
-        opts.set_dictionary(&self.dictionary_name, self.dictionary_length)?;
-        opts.max_guesses = self.max_tries;
-        
+    /// Selects the previous dictionary in the list
+    pub fn previous(&mut self) {
+        if let Ok(idx) = self.find_dictionary_index() {
+            let prev = if idx == 0 {
+                self.dictionaries.len() - 1
+            } else {
+                idx - 1
+            };
+
+            let dict = &self.dictionaries[prev];
+            self.dictionary_name = dict.name.clone();
+            self.dictionary_length = dict.length;
+        }
+    }
+
+    /// Applies the current options to the game
+    pub fn apply(&self, game_options: &mut GameOptions) -> Result<(), OptionsError> {
+        game_options.set_dictionary(&self.dictionary_name, self.dictionary_length)?;
+        game_options.max_guesses = self.max_tries;
+
         Ok(())
     }
 
+    /// Increments the maximum number of tries (up to 10)
     pub fn increment_tries(&mut self) {
-        self.max_tries += 1;
-        self.max_tries = self.max_tries.min(10);
+        self.max_tries = (self.max_tries + 1).min(10);
     }
 
+    /// Decrements the maximum number of tries (down to 3)
     pub fn decrement_tries(&mut self) {
-        self.max_tries -= 1;
-        self.max_tries = self.max_tries.max(3);
+        self.max_tries = (self.max_tries - 1).max(3);
     }
-}
-
-pub fn draw_options(frame: &mut Frame, options_data: &OptionData) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(vec![Constraint::Fill(1), Constraint::Max(10), Constraint::Max(10), Constraint::Fill(1), Constraint::Max(5)])
-        .split(frame.area());
-
-        frame.render_widget(
-            BigText::builder()
-                .pixel_size(PixelSize::Quadrant)
-                .lines(vec![Line::from(format!("{} - {} Letters", options_data.dictionary_name, options_data.dictionary_length))])
-                .centered()
-                .build(),
-            layout[1]
-        );
-    
-        frame.render_widget(
-            BigText::builder()
-                .pixel_size(PixelSize::Quadrant)
-                .lines(vec![Line::from(format!("Guesses: {}", options_data.max_tries))])
-                .centered()
-                .build(),
-            layout[2]
-        );
-
-    let p = Block::default()
-        .title(Line::from("Select: Enter, Cancel: ESC, Dictionary: Up/Down, Guesses: Left/Right, Quit: CTRL-Q").left_aligned());
-    frame.render_widget(p, layout[4]);
 }

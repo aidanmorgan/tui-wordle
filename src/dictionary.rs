@@ -1,30 +1,22 @@
 use once_cell::sync::Lazy;
 use rand::prelude::IteratorRandom;
-use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use thiserror::Error;
 
 /// Errors that can occur when working with dictionaries
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DictionaryError {
     /// Failed to load dictionary file
-    FileLoadError,
+    #[error("Failed to load dictionary file: {0}")]
+    FileLoadError(#[from] std::io::Error),
+
     /// No word found matching the criteria
+    #[error("No word found matching the criteria")]
     WordNotFound,
 }
-
-impl Display for DictionaryError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::FileLoadError => write!(f, "Failed to load dictionary file"),
-            Self::WordNotFound => write!(f, "No word found matching the criteria"),
-        }
-    }
-}
-
-impl Error for DictionaryError {}
 
 /// Dictionary containing words of a specific length
 pub struct Dictionary {
@@ -71,16 +63,16 @@ impl Dictionary {
         Box::new(|filename| {
             fs::read_to_string(filename)
                 .map(|content| content.lines().map(String::from).collect())
-                .map_err(|_| DictionaryError::FileLoadError)
+                .map_err(DictionaryError::from)
         })
     }
 
     /// Creates a new dictionary
-    fn new(name: &str, file: &str, count: u8) -> Self {
+    fn new(name: &str, file: &str, word_length: u8) -> Self {
         Dictionary {
             name: name.to_string(),
             filename: file.to_string(),
-            length: count,
+            length: word_length,
             all_words: Lazy::new(|| Self::load_dictionary()),
         }
     }
@@ -100,7 +92,7 @@ impl Dictionary {
 }
 
 thread_local! {
-    // ideally this wouldn't be a thread local, but there doesn't seem to be any other way to make
+    // Dictionary cache to avoid reloading dictionaries
     static DICTIONARY_CACHE: OnceLock<Vec<Arc<Dictionary>>> = OnceLock::new();
 }
 
@@ -136,7 +128,7 @@ pub fn get_dictionaries() -> Vec<Arc<Dictionary>> {
                 ]
             })
             .iter()
-            .map(|dict| Arc::clone(dict))
+            .map(Arc::clone)
             .collect()
     })
 }

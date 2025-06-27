@@ -1,31 +1,30 @@
 use crate::dictionary::{get_dictionaries, Dictionary};
 use std::cmp::PartialEq;
-use std::error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug};
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GameError {
+    #[error("Error accessing dictionary")]
     DictionaryError,
-    NoActiveGame,
-    NoActiveGuess,
-    EmptyGuess,
-    FullGuess,
-    IncompleteGuess,
-}
-impl error::Error for GameError {}
 
-impl Display for GameError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DictionaryError => write!(f, "Error accessing dictionary"),
-            Self::NoActiveGame => write!(f, "No active game"),
-            Self::EmptyGuess => write!(f, "Cannot delete from an empty guess"),
-            Self::FullGuess => write!(f, "Cannot add to a full guess"),
-            Self::IncompleteGuess => write!(f, "Guess is incomplete"),
-            Self::NoActiveGuess => write!(f, "No active guess"),
-        }
-    }
+    #[error("No active game")]
+    NoActiveGame,
+
+    #[error("No active guess")]
+    NoActiveGuess,
+
+    #[error("Cannot delete from an empty guess")]
+    EmptyGuess,
+
+    #[error("Cannot add to a full guess")]
+    FullGuess,
+
+    #[error("Guess is incomplete")]
+    IncompleteGuess,
+
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug, Copy)]
@@ -36,32 +35,30 @@ pub enum LetterResult {
     Correct,
 }
 
-#[derive(Debug)]
+/// Game configuration options
+#[derive(Debug, Clone)]
 pub struct GameOptions {
+    /// Length of words in the game
     pub word_length: u16,
+    /// Maximum number of guesses allowed
     pub max_guesses: u16,
+    /// Dictionary used for the game
     pub dictionary: Arc<Dictionary>,
-}
-
-impl Clone for GameOptions {
-    fn clone(&self) -> Self {
-        GameOptions {
-            dictionary: Arc::clone(&self.dictionary),
-            max_guesses: self.max_guesses,
-            word_length: self.word_length,
-        }
-    }
 }
 
 impl Default for GameOptions {
     fn default() -> Self {
         let dictionaries = get_dictionaries();
 
-        let default_dictionary = dictionaries.iter().find(|x| x.name == "Wordle")
-            .expect("No default dictionary found");
+        // Find the default Wordle dictionary or use the first available dictionary
+        let default_dictionary = dictionaries
+            .iter()
+            .find(|x| x.name == "Wordle" && x.length == 5)
+            .or_else(|| dictionaries.first())
+            .expect("No dictionaries available");
 
         Self {
-            word_length: 5,
+            word_length: default_dictionary.length as u16,
             max_guesses: 6,
             dictionary: Arc::clone(default_dictionary),
         }
@@ -69,19 +66,29 @@ impl Default for GameOptions {
 }
 
 impl GameOptions {
+    /// Gets a random word from the current dictionary
     pub fn random_word(&self) -> Result<String, GameError> {
         self.dictionary
             .random_word()
-            .map_err(|_| GameError::DictionaryError)
+            .map_err(|_e| GameError::DictionaryError)
     }
 
+    /// Sets the dictionary to use for the game
+    ///
+    /// # Arguments
+    /// * `name` - The name of the dictionary
+    /// * `length` - The length of words in the dictionary
+    ///
+    /// # Returns
+    /// * `Ok(())` if the dictionary was set successfully
+    /// * `Err(GameError::DictionaryError)` if the dictionary was not found
     pub fn set_dictionary(&mut self, name: &str, length: u8) -> Result<(), GameError> {
         let dictionaries = get_dictionaries();
 
         let dictionary = dictionaries
             .iter()
             .find(|x| x.name == name && x.length == length)
-            .ok_or(GameError::DictionaryError)?;
+            .ok_or_else(|| GameError::DictionaryError)?;
 
         self.dictionary = Arc::clone(dictionary);
         self.word_length = length as u16;
@@ -184,6 +191,7 @@ pub enum GameState {
     Lost,
 }
 
+#[derive(Debug)]
 pub struct GameData {
     pub game_state: GameState,
     pub answer: String,
@@ -192,10 +200,19 @@ pub struct GameData {
 }
 
 impl GameData {
+    /// Creates a new game with the given options
+    ///
+    /// # Panics
+    /// Panics if a random word cannot be retrieved from the dictionary.
+    /// This is a design choice to fail fast if the dictionary is not available,
+    /// as the game cannot function without a word to guess.
     pub fn new(opts: &GameOptions) -> Self {
         let word = opts
             .random_word()
-            .unwrap_or_else(|_| panic!("Failed to get random word"));
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to get random word: {}", e);
+                panic!("Cannot start game without a word to guess")
+            });
 
         Self {
             game_state: GameState::Active,
@@ -240,59 +257,92 @@ impl GameData {
         guess.1.delete_letter()
     }
 
+    /// Submits the current word and checks if it matches the answer
+    ///
+    /// # Returns
+    /// * `Ok(GameState)` - The new state of the game
+    /// * `Err(GameError)` - If there was an error submitting the word
     pub fn submit_word(&mut self) -> Result<GameState, GameError> {
+        // Check if the game is active
         if self.game_state != GameState::Active {
             return Err(GameError::NoActiveGame);
         }
 
-        let game_options = &self.game_options;
-        let answer = &self.answer;
-        let guesses = &mut self.guesses;
-
-        let active_guess = guesses
+        // Find the active guess
+        let active_guess = self.guesses
             .iter_mut()
             .enumerate()
-            .find(|x| x.1.state == GuessState::Active)
-            .ok_or_else(|| panic!("No active guess"));
+            .find(|(_, g)| g.state == GuessState::Active)
+            .ok_or_else(|| GameError::InternalError("No active guess found".to_string()))?;
 
-        let (guess_idx, guess) = active_guess?;
+        let (guess_idx, guess) = active_guess;
         let guess_idx = guess_idx as u16;
 
+        // Check if the guess is complete
         if guess.remaining_letters() > 0 {
             return Err(GameError::IncompleteGuess);
         }
 
-        let mut answer_chars: Vec<_> = answer.to_ascii_uppercase().chars().collect();
-        let mut result = vec![LetterResult::Absent; game_options.word_length as usize];
+        // Get the guess characters before borrowing self again
+        let guess_chars = guess.as_chars();
 
-        let guess_chars: Vec<_> = guess.as_chars();
+        // Process the guess
+        let result = Self::check_guess(
+            &self.answer,
+            self.game_options.word_length,
+            &guess_chars
+        );
+
+        guess.complete_guess(&result);
+
+        // Update game state based on the result
+        self.update_game_state(guess_idx, &result);
+
+        Ok(self.game_state)
+    }
+
+    /// Checks a guess against the answer and returns the result
+    fn check_guess(answer: &str, word_length: u16, guess_chars: &[char]) -> Vec<LetterResult> {
+        let mut answer_chars: Vec<_> = answer.to_ascii_uppercase().chars().collect();
+        let mut result = vec![LetterResult::Absent; word_length as usize];
+
+        // First pass: check for correct letters
         for i in 0..guess_chars.len() {
             if guess_chars[i] == answer_chars[i].to_ascii_uppercase() {
                 result[i] = LetterResult::Correct;
+                // Mark this character as used
                 answer_chars[i] = char::MIN;
             }
         }
 
+        // Second pass: check for present letters
         for (i, &g) in guess_chars.iter().enumerate() {
-            if g != char::MIN {
-                if let Some(pos) = answer_chars.iter().position(|&a| a == g) {
-                    result[i] = LetterResult::Present;
-                    answer_chars[pos] = char::MIN;
-                }
+            // Skip letters that are already marked as correct
+            if result[i] == LetterResult::Correct {
+                continue;
+            }
+
+            // Check if the letter is present elsewhere in the answer
+            if let Some(pos) = answer_chars.iter().position(|&a| a.to_ascii_uppercase() == g) {
+                result[i] = LetterResult::Present;
+                // Mark this character as used
+                answer_chars[pos] = char::MIN;
             }
         }
 
-        guess.complete_guess(&result);
+        result
+    }
 
-        if result.iter().all(|x| x == &LetterResult::Correct) {
+    /// Updates the game state based on the guess result
+    fn update_game_state(&mut self, guess_idx: u16, result: &[LetterResult]) {
+        if result.iter().all(|x| *x == LetterResult::Correct) {
             self.game_state = GameState::Won;
-        } else if game_options.max_guesses - guess_idx - 1 > 0 {
+        } else if self.game_options.max_guesses - guess_idx - 1 > 0 {
+            // Activate the next guess
             let next_guess = &mut self.guesses[(guess_idx + 1) as usize];
             next_guess.state = GuessState::Active;
         } else {
             self.game_state = GameState::Lost;
         }
-
-        Ok(self.game_state)
     }
 }
