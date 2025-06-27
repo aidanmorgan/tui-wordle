@@ -3,31 +3,47 @@ use rand::prelude::IteratorRandom;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs;
-use std::rc::Rc;
-use std::sync::{OnceLock};
+use std::sync::Arc;
+use std::sync::OnceLock;
 
+/// Errors that can occur when working with dictionaries
 #[derive(Debug)]
 pub enum DictionaryError {
+    /// Failed to load dictionary file
     FileLoadError,
+    /// No dictionary with the requested name
     NoMatchingName,
+    /// No dictionary with the requested word length
     NoMatchingLength,
-    CacheError
+    /// Error accessing the dictionary cache
+    CacheError,
+    /// No word found matching the criteria
+    WordNotFound,
 }
+
 impl Display for DictionaryError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Self::FileLoadError => write!(f, "Failed to load dictionary file"),
+            Self::NoMatchingName => write!(f, "No dictionary with the requested name"),
+            Self::NoMatchingLength => write!(f, "No dictionary with the requested word length"),
+            Self::CacheError => write!(f, "Error accessing the dictionary cache"),
+            Self::WordNotFound => write!(f, "No word found matching the criteria"),
+        }
     }
 }
 
 impl Error for DictionaryError {}
 
+/// Dictionary containing words of a specific length
 pub struct Dictionary {
+    /// Name of the dictionary
     pub name: String,
+    /// Length of words in this dictionary
     pub length: u8,
-
+    /// Path to the dictionary file
     filename: String,
-
-    // this is a gross trick to try and defer the loading of the file into memory as late as possible
+    /// Lazily loaded function to read words from file
     all_words: Lazy<Box<dyn Fn(&str) -> Result<Vec<String>, DictionaryError>>>,
 }
 
@@ -44,7 +60,11 @@ impl Clone for Dictionary {
 
 impl Debug for Dictionary {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Dictionary[{},{},{}]", self.name, self.length, self.filename)
+        f.debug_struct("Dictionary")
+            .field("name", &self.name)
+            .field("length", &self.length)
+            .field("filename", &self.filename)
+            .finish()
     }
 }
 
@@ -55,67 +75,65 @@ impl Display for Dictionary {
 }
 
 impl Dictionary {
+    /// Creates a function that loads words from a dictionary file
     fn load_dictionary() -> Box<dyn Fn(&str) -> Result<Vec<String>, DictionaryError>> {
-        return Box::new(|x| {
-            let val = fs::read_to_string(x);
-
-            match val {
-                Ok(_) => {
-                    return Ok(val.unwrap().lines().map(|x| String::from(x)).collect());
-                }
-                Err(_) => {
-                    return Err(DictionaryError::FileLoadError);
-                }
-            }
-        });
+        Box::new(|filename| {
+            fs::read_to_string(filename)
+                .map(|content| content.lines().map(String::from).collect())
+                .map_err(|_| DictionaryError::FileLoadError)
+        })
     }
+
+    /// Creates a new dictionary
     fn new(name: &str, file: &str, count: u8) -> Self {
         Dictionary {
-            name: String::from(name),
-            filename: String::from(file),
+            name: name.to_string(),
+            filename: file.to_string(),
             length: count,
             all_words: Lazy::new(|| Self::load_dictionary()),
         }
     }
-    pub fn random_word(&self) -> Result<String, Box<dyn Error>> {
+
+    /// Gets a random word from the dictionary
+    pub fn random_word(&self) -> Result<String, DictionaryError> {
         let func = &self.all_words;
-
         let contents = func(self.filename.as_str())?;
-        
-        let filtered = contents.iter()
-            .filter(|x| x.len() == self.length as usize)
-            .choose(&mut rand::rng())
-            .unwrap();
 
-        return Ok(filtered.clone());
+        contents
+            .iter()
+            .filter(|word| word.len() == self.length as usize)
+            .choose(&mut rand::thread_rng())
+            .cloned()
+            .ok_or(DictionaryError::WordNotFound)
     }
 }
 
-
-
 thread_local! {
     // ideally this wouldn't be a thread local, but there doesn't seem to be any other way to make
-    static DICTIONARY_CACHE: OnceLock<Vec<Rc<Dictionary>>> = OnceLock::new();
+    static DICTIONARY_CACHE: OnceLock<Vec<Arc<Dictionary>>> = OnceLock::new();
 }
 
-
-// Intentionally not returning a reference this cache, it's cloning Rc's so it doesnt matter if
-// we lose ownership of it and let the caller decide when to clean up
-pub fn get_dictionaries() -> Vec<Rc<Dictionary>> {
-    return DICTIONARY_CACHE.with(|local| {
-        local.get_or_init(|| {
-            vec![
-                Rc::new(Dictionary::new("Wordle", "data/wordle.txt", 5)),
-                Rc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 4)),
-                Rc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 5)),
-                Rc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 6)),
-                Rc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 7)),
-                Rc::new(Dictionary::new("Dutch", "data/dutch.txt", 5)),
-                Rc::new(Dictionary::new("French", "data/french.txt", 6)),
-                Rc::new(Dictionary::new("French", "data/french.txt", 7)),
-                Rc::new(Dictionary::new("French", "data/french.txt", 8)),
-                Rc::new(Dictionary::new("Italian", "data/italian.txt", 5))
-            ]
-        }).clone()
-    });
+/// Gets all available dictionaries
+///
+/// Intentionally returns a clone of the Arc pointers rather than a reference to the cache,
+/// allowing the caller to decide when to clean up.
+pub fn get_dictionaries() -> Vec<Arc<Dictionary>> {
+    DICTIONARY_CACHE.with(|local| {
+        local
+            .get_or_init(|| {
+                vec![
+                    Arc::new(Dictionary::new("Wordle", "data/wordle.txt", 5)),
+                    Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 4)),
+                    Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 5)),
+                    Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 6)),
+                    Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 7)),
+                    Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 5)),
+                    Arc::new(Dictionary::new("French", "data/french.txt", 6)),
+                    Arc::new(Dictionary::new("French", "data/french.txt", 7)),
+                    Arc::new(Dictionary::new("French", "data/french.txt", 8)),
+                    Arc::new(Dictionary::new("Italian", "data/italian.txt", 5)),
+                ]
+            })
+            .clone()
+    })
 }

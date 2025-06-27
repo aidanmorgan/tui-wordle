@@ -1,11 +1,14 @@
-use crate::game::{GameOptions, LetterResult};
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::prelude::{Color, Line};
+use crate::game::{GameData, GameOptions, GameState, LetterResult};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::symbols::Marker;
+use ratatui::text::Line;
 use ratatui::widgets::canvas::{Canvas, Rectangle};
-use ratatui::widgets::{Block};
+use ratatui::widgets::Block;
 use ratatui::Frame;
 use std::collections::HashMap;
+use std::hash::Hash;
+use tui_big_text::{BigText, PixelSize};
 
 pub struct RenderOpts {
     grid_line_width: u16, // the width of the line to draw (in pixels)
@@ -28,12 +31,13 @@ pub struct RenderOpts {
 }
 impl RenderOpts {
     pub fn background_colour(&self, ls: &LetterResult) -> Option<Color> {
-        self.cell_background_colours.get(ls).cloned().unwrap_or(None)
+        self.cell_background_colours
+            .get(ls)
+            .cloned()
+            .unwrap_or(None)
     }
 
-    pub fn for_frame(g: &GameOptions, f: &Frame) -> Self {
-        let area = f.area();
-
+    pub fn for_rect(g: &GameOptions, area: &Rect) -> Self {
         let mut r = RenderOpts {
             background_colour: Color::Rgb(255, 255, 255),
             grid_colour: Color::Rgb(211, 214, 218),
@@ -82,80 +86,117 @@ impl RenderOpts {
     }
 }
 
-pub fn draw_game(
-    frame: &mut Frame,
-    game_opts: &GameOptions,
-    render_opts: &RenderOpts,
-    words: &Vec<crate::game::Guess>,
-) {
-    let area = frame.area();
-
-    // there's a minimum size we can't render below, if we are getting a cell that is zero
-    // or lower, then we should just not even attempt to render.
-    if render_opts.letter_cell_height <= 0 || render_opts.letter_cell_width <= 0 {
-        return;
-    }
-
-    let canvas = Canvas::default()
-        .background_color(render_opts.background_colour)
-        .marker(Marker::Block)
-        .x_bounds([0.0, area.width as f64])
-        .y_bounds([0.0, area.height as f64])
-        .paint(|ctx| {
-            for y in 0..game_opts.max_guesses {
-                let guess = &words[y as usize];
-
-                for x in 0..game_opts.word_length {
-                    let x_cell = (render_opts.grid_left_border
-                        + (x * render_opts.letter_cell_width)
-                        + (x * render_opts.box_spacing))
-                        + (x * 2 * render_opts.grid_line_width);
-
-                    let y_cell = (render_opts.grid_top_border
-                        + (y * render_opts.letter_cell_height)
-                        + (y * render_opts.box_spacing))
-                        + (y * 2 * render_opts.grid_line_width);
-
-                    let letter = guess.value_at(x);
-                    let mut colour = render_opts.grid_colour;
-
-                    if let (Some(_), Some(lr)) = (letter.0, letter.1) {
-                        // if there is a result provided then check that we might want to change
-                        // the cell background colour
-                        colour = render_opts
-                            .background_colour(&lr)
-                            .unwrap_or(colour);
-                    }
-
-                    let cell = &Rectangle {
-                        x: x_cell as f64,
-                        y: y_cell as f64,
-                        width: render_opts.letter_cell_width as f64,
-                        height: render_opts.letter_cell_height as f64,
-                        color: colour,
-                    };
-
-                    ctx.draw(cell);
-
-                    ctx.print(
-                        (x_cell + (render_opts.letter_cell_width / 2) - 1) as f64,
-                        (y_cell + (render_opts.letter_cell_height / 2) + 1) as f64,
-                        String::from(letter.0.unwrap_or(' ')),
-                    );
-                }
-            }
-        });
-
+pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameData) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
         .split(frame.area());
 
-    frame.render_widget(canvas, layout[0]);
+    let content_panel = layout[0];
 
     let p = Block::default()
         .title(Line::from("New Game: CTRL-N, Quit: CTRL-Q | ESC, Options: CTRL-O").left_aligned())
         .title(Line::from(format!("{}", game_opts.dictionary)).right_aligned());
-
     frame.render_widget(p, layout[1]);
+
+    match game_data.game_state {
+        GameState::Won => {
+            frame.render_widget(
+                BigText::builder()
+                    .pixel_size(PixelSize::Full)
+                    .style(Style::new())
+                    .lines(vec![Line::from("You Won!".green())])
+                    .centered()
+                    .build(),
+                content_panel,
+            );
+        }
+        GameState::Lost => {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(content_panel);
+
+            frame.render_widget(
+                BigText::builder()
+                    .pixel_size(PixelSize::Full)
+                    .lines(vec![Line::from("You Lost!".red())])
+                    .centered()
+                    .build(),
+                layout[0],
+            );
+
+            frame.render_widget(
+                BigText::builder()
+                    .pixel_size(PixelSize::Quadrant)
+                    .lines(vec![Line::from(
+                        format!("The word was {}", game_data.answer).white(),
+                    )])
+                    .centered()
+                    .build(),
+                layout[1],
+            );
+        }
+        _ => {
+            let render_opts = RenderOpts::for_rect(game_opts, &content_panel);
+            // there's a minimum size we can't render below, if we are getting a cell that is zero
+            // or lower, then we should just not even attempt to render.
+            if render_opts.letter_cell_height <= 0 || render_opts.letter_cell_width <= 0 {
+                return;
+            }
+
+            let canvas = Canvas::default()
+                .background_color(render_opts.background_colour)
+                .marker(Marker::Block)
+                .x_bounds([0.0, content_panel.width as f64])
+                .y_bounds([0.0, content_panel.height as f64])
+                .paint(|ctx| {
+                    for y in 0..game_opts.max_guesses {
+                        // Flip the index so that the first guess is at the top
+                        let guess =
+                            &game_data.guesses[(game_opts.max_guesses - y - 1) as usize].values();
+
+                        for x in 0..game_opts.word_length {
+                            let letter = &guess[x as usize];
+
+                            let x_cell = (render_opts.grid_left_border
+                                + (x * render_opts.letter_cell_width)
+                                + (x * render_opts.box_spacing)
+                                + (x * 2 * render_opts.grid_line_width));
+
+                            let y_cell = render_opts.grid_top_border
+                                + (y * render_opts.letter_cell_height)
+                                + (y * render_opts.box_spacing)
+                                + (y * 2 * render_opts.grid_line_width);
+
+                            let mut colour = render_opts.grid_colour;
+
+                            if let (Some(_), Some(lr)) = (letter.0, &letter.1) {
+                                // if there is a result provided then check that we might want to change
+                                // the cell background colour
+                                colour = render_opts.background_colour(&lr).unwrap_or(colour);
+                            }
+
+                            let cell = &Rectangle {
+                                x: x_cell as f64,
+                                y: y_cell as f64,
+                                width: render_opts.letter_cell_width as f64,
+                                height: render_opts.letter_cell_height as f64,
+                                color: colour,
+                            };
+
+                            ctx.draw(cell);
+
+                            ctx.print(
+                                (x_cell + (render_opts.letter_cell_width / 2) - 1) as f64,
+                                (y_cell + (render_opts.letter_cell_height / 2) + 1) as f64,
+                                String::from(letter.0.unwrap_or(' ')),
+                            );
+                        }
+                    }
+                });
+
+            frame.render_widget(canvas, content_panel);
+        }
+    }
 }

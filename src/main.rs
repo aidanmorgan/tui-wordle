@@ -1,26 +1,29 @@
+mod dictionary;
 mod game;
 mod render;
-mod dictionary;
 
-use std::error;
+use crate::game::{GameData, GameOptions};
 use ratatui::crossterm::event;
 use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
+use std::error;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use crate::game::{GameData, GameOptions};
-use crate::render::RenderOpts;
-use crate::WordleError::NoActiveGame;
 
 #[derive(Debug)]
 enum WordleError {
     NoActiveGame,
     RenderingError(Box<dyn Error>),
+    GameLogicError,
 }
 
 impl Display for WordleError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Self::NoActiveGame => write!(f, "No active game"),
+            Self::RenderingError(e) => write!(f, "Rendering error: {}", e),
+            Self::GameLogicError => write!(f, "Game logic error"),
+        }
     }
 }
 
@@ -38,7 +41,9 @@ fn main() {
     wordle.new_game();
 
     let terminal = ratatui::init();
-    main_loop(&mut wordle, terminal).unwrap();
+    if let Err(e) = main_loop(&mut wordle, terminal) {
+        eprintln!("Error in main loop: {}", e);
+    }
     ratatui::restore();
 }
 
@@ -58,9 +63,7 @@ impl Application {
     }
 
     fn new_game(&mut self) {
-        if self.current_game.is_none() {
-            self.current_game = Some(GameData::new(&self.game_options));
-        }
+        self.current_game = Some(GameData::new(&self.game_options));
     }
 
     fn options(&mut self) {
@@ -72,32 +75,51 @@ impl Application {
     }
 
     pub fn submit_word(&mut self) -> Result<(), WordleError> {
-        let game = self.current_game.as_mut().ok_or(NoActiveGame)?;
-        game.submit_word();
+        let game = self
+            .current_game
+            .as_mut()
+            .ok_or(WordleError::NoActiveGame)?;
+        game.submit_word()
+            .map_err(|_| WordleError::GameLogicError)?;
         Ok(())
     }
 
     pub fn add_letter(&mut self, letter: char) -> Result<(), WordleError> {
-        let game = self.current_game.as_mut().ok_or(NoActiveGame)?;
-        game.add_letter(letter);
+        let game = self
+            .current_game
+            .as_mut()
+            .ok_or(WordleError::NoActiveGame)?;
+        game.add_letter(letter)
+            .map_err(|_| WordleError::GameLogicError)?;
         Ok(())
     }
 
     pub fn remove_letter(&mut self) -> Result<(), WordleError> {
-        let game = self.current_game.as_mut().ok_or(NoActiveGame)?;
-        game.delete_letter();
+        let game = self
+            .current_game
+            .as_mut()
+            .ok_or(WordleError::NoActiveGame)?;
+        game.delete_letter()
+            .map_err(|_| WordleError::GameLogicError)?;
         Ok(())
     }
 }
 
-fn main_loop(app: &mut Application, mut terminal: DefaultTerminal) -> Result<(), Box<dyn error::Error>> {
+fn main_loop(
+    app: &mut Application,
+    mut terminal: DefaultTerminal,
+) -> Result<(), Box<dyn error::Error>> {
     loop {
         match app.app_state {
             ScreenMode::Game => {
-                step_game(app, &mut terminal)?;
+                if let Err(e) = step_game(app, &mut terminal) {
+                    // no-op
+                }
             }
             ScreenMode::Options => {
-                step_options(app, &mut terminal)?;
+                if let Err(e) = step_options(app, &mut terminal) {
+                    // no-op
+                }
             }
             ScreenMode::Quit => {
                 return Ok(());
@@ -106,7 +128,24 @@ fn main_loop(app: &mut Application, mut terminal: DefaultTerminal) -> Result<(),
     }
 }
 
-fn step_game(app: &mut Application, terminal: &mut DefaultTerminal) -> Result<(), Box<dyn error::Error>> {
+fn step_game(
+    app: &mut Application,
+    terminal: &mut DefaultTerminal,
+) -> Result<(), Box<dyn error::Error>> {
+    if app.current_game.is_none() {
+        return Ok(());
+    }
+
+    terminal
+        .draw(|frame| {
+            let game = app
+                .current_game
+                .as_ref()
+                .expect("Current game should be Some at this point");
+            render::draw_game(frame, &app.game_options, &game)
+        })
+        .map_err(|e| WordleError::RenderingError(Box::new(e)))?;
+
     if let Event::Key(key) = event::read()? {
         if key.kind == KeyEventKind::Press {
             match key.code {
@@ -137,26 +176,33 @@ fn step_game(app: &mut Application, terminal: &mut DefaultTerminal) -> Result<()
         }
     }
 
-    if app.current_game.is_none() {
-        return Ok(());
-    }
-
-    let _ = terminal.draw(|frame| {
-        let game = app.current_game.as_ref().unwrap();
-        render::draw_game(
-            frame,
-            &app.game_options,
-            &RenderOpts::for_frame(&app.game_options, frame),
-            &game.guesses,
-        )
-    });
-
     Ok(())
 }
 
 fn step_options(
-    _app: &mut Application,
-    _terminal: &mut DefaultTerminal,
-) -> Result<(), Box<WordleError>> {
+    app: &mut Application,
+    terminal: &mut DefaultTerminal,
+) -> Result<(), Box<dyn Error>> {
+    terminal
+        .draw(|frame| {
+            // Options screen rendering would go here
+        })
+        .map_err(|e| WordleError::RenderingError(Box::new(e)))?;
+
+    if let Event::Key(key) = event::read()? {
+        if key.kind == KeyEventKind::Press {
+            match key.code {
+                KeyCode::Enter => {
+                    app.new_game();
+                }
+                KeyCode::Esc => {
+                    app.quit();
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+    }
+
     Ok(())
 }
