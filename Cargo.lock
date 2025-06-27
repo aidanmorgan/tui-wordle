@@ -441,16 +441,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-play"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "rand",
- "ratatui",
- "tui-big-text",
-]
-
-[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -572,6 +562,16 @@ dependencies = [
  "font8x8",
  "itertools 0.14.0",
  "ratatui",
+]
+
+[[package]]
+name = "tui-wordle"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "rand",
+ "ratatui",
+ "tui-big-text",
 ]
 
 [[package]]

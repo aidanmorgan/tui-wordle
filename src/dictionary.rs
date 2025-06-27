@@ -11,12 +11,6 @@ use std::sync::OnceLock;
 pub enum DictionaryError {
     /// Failed to load dictionary file
     FileLoadError,
-    /// No dictionary with the requested name
-    NoMatchingName,
-    /// No dictionary with the requested word length
-    NoMatchingLength,
-    /// Error accessing the dictionary cache
-    CacheError,
     /// No word found matching the criteria
     WordNotFound,
 }
@@ -25,9 +19,6 @@ impl Display for DictionaryError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::FileLoadError => write!(f, "Failed to load dictionary file"),
-            Self::NoMatchingName => write!(f, "No dictionary with the requested name"),
-            Self::NoMatchingLength => write!(f, "No dictionary with the requested word length"),
-            Self::CacheError => write!(f, "Error accessing the dictionary cache"),
             Self::WordNotFound => write!(f, "No word found matching the criteria"),
         }
     }
@@ -101,8 +92,7 @@ impl Dictionary {
 
         contents
             .iter()
-            .filter(|word| word.len() == self.length as usize)
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rand::rng())
             .cloned()
             .ok_or(DictionaryError::WordNotFound)
     }
@@ -115,8 +105,8 @@ thread_local! {
 
 /// Gets all available dictionaries
 ///
-/// Intentionally returns a clone of the Arc pointers rather than a reference to the cache,
-/// allowing the caller to decide when to clean up.
+/// Returns a vector of Arc pointers to dictionaries.
+/// Since Arc is a reference-counted pointer, cloning it is cheap.
 pub fn get_dictionaries() -> Vec<Arc<Dictionary>> {
     DICTIONARY_CACHE.with(|local| {
         local
@@ -127,13 +117,25 @@ pub fn get_dictionaries() -> Vec<Arc<Dictionary>> {
                     Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 5)),
                     Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 6)),
                     Arc::new(Dictionary::new("Scrabble", "data/scrabble.txt", 7)),
+                    Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 4)),
                     Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 5)),
+                    Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 6)),
+                    Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 7)),
+                    Arc::new(Dictionary::new("Dutch", "data/dutch.txt", 8)),
+                    Arc::new(Dictionary::new("French", "data/french.txt", 4)),
+                    Arc::new(Dictionary::new("French", "data/french.txt", 5)),
                     Arc::new(Dictionary::new("French", "data/french.txt", 6)),
                     Arc::new(Dictionary::new("French", "data/french.txt", 7)),
                     Arc::new(Dictionary::new("French", "data/french.txt", 8)),
+                    Arc::new(Dictionary::new("Italian", "data/italian.txt", 4)),
                     Arc::new(Dictionary::new("Italian", "data/italian.txt", 5)),
+                    Arc::new(Dictionary::new("Italian", "data/italian.txt", 6)),
+                    Arc::new(Dictionary::new("Italian", "data/italian.txt", 7)),
+                    Arc::new(Dictionary::new("Italian", "data/italian.txt", 8)),
                 ]
             })
-            .clone()
+            .iter()
+            .map(|dict| Arc::clone(dict))
+            .collect()
     })
 }

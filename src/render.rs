@@ -7,7 +7,6 @@ use ratatui::widgets::canvas::{Canvas, Rectangle};
 use ratatui::widgets::Block;
 use ratatui::Frame;
 use std::collections::HashMap;
-use std::hash::Hash;
 use tui_big_text::{BigText, PixelSize};
 
 pub struct RenderOpts {
@@ -33,7 +32,7 @@ impl RenderOpts {
     pub fn background_colour(&self, ls: &LetterResult) -> Option<Color> {
         self.cell_background_colours
             .get(ls)
-            .cloned()
+            .copied()
             .unwrap_or(None)
     }
 
@@ -89,7 +88,7 @@ impl RenderOpts {
 pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameData) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
+        .constraints(vec![Constraint::Percentage(98), Constraint::Percentage(2)])
         .split(frame.area());
 
     let content_panel = layout[0];
@@ -159,10 +158,10 @@ pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameDat
                         for x in 0..game_opts.word_length {
                             let letter = &guess[x as usize];
 
-                            let x_cell = (render_opts.grid_left_border
+                            let x_cell = render_opts.grid_left_border
                                 + (x * render_opts.letter_cell_width)
                                 + (x * render_opts.box_spacing)
-                                + (x * 2 * render_opts.grid_line_width));
+                                + (x * 2 * render_opts.grid_line_width);
 
                             let y_cell = render_opts.grid_top_border
                                 + (y * render_opts.letter_cell_height)

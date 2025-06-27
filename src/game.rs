@@ -6,21 +6,18 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum GameError {
-    FileLoadError,
     DictionaryError,
     NoActiveGame,
-
+    NoActiveGuess,
     EmptyGuess,
     FullGuess,
     IncompleteGuess,
-    NoActiveGuess,
 }
 impl error::Error for GameError {}
 
 impl Display for GameError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::FileLoadError => write!(f, "Failed to load game file"),
             Self::DictionaryError => write!(f, "Error accessing dictionary"),
             Self::NoActiveGame => write!(f, "No active game"),
             Self::EmptyGuess => write!(f, "Cannot delete from an empty guess"),
@@ -60,16 +57,13 @@ impl Default for GameOptions {
     fn default() -> Self {
         let dictionaries = get_dictionaries();
 
-        let default_dictionary = dictionaries.iter().filter(|x| x.name == "Wordle").next();
+        let default_dictionary = dictionaries.iter().find(|x| x.name == "Wordle")
+            .expect("No default dictionary found");
 
-        if let Some(x) = default_dictionary {
-            Self {
-                word_length: 5,
-                max_guesses: 6,
-                dictionary: Arc::clone(x),
-            }
-        } else {
-            panic!("No default dictionary found")
+        Self {
+            word_length: 5,
+            max_guesses: 6,
+            dictionary: Arc::clone(default_dictionary),
         }
     }
 }
@@ -81,7 +75,7 @@ impl GameOptions {
             .map_err(|_| GameError::DictionaryError)
     }
 
-    fn set_dictionary(&mut self, name: &str, length: u8) -> Result<(), GameError> {
+    pub fn set_dictionary(&mut self, name: &str, length: u8) -> Result<(), GameError> {
         let dictionaries = get_dictionaries();
 
         let dictionary = dictionaries
@@ -128,7 +122,7 @@ impl Guess {
                 if i == 0 {
                     g.state = GuessState::Active;
                 }
-                return g;
+                g
             })
             .collect()
     }
@@ -165,21 +159,20 @@ impl Guess {
     }
 
     pub fn values(&self) -> Vec<(Option<char>, Option<LetterResult>)> {
-        if let Some(x) = &self.result {
-            return self
-                .letters
+        if let Some(results) = &self.result {
+            self.letters
                 .iter()
-                .zip(x.iter())
-                .map(|x| (Some(*x.0), Some(x.1.clone())))
-                .collect();
+                .zip(results.iter())
+                .map(|(c, result)| (Some(*c), Some(*result)))
+                .collect()
         } else {
             let mut result = vec![(Some(' '), Some(LetterResult::Empty)); self.max_length as usize];
 
-            for (i, x) in self.letters.iter().enumerate() {
-                result[i] = (Some(x.to_ascii_uppercase()), Some(LetterResult::Empty));
+            for (i, c) in self.letters.iter().enumerate() {
+                result[i] = (Some(c.to_ascii_uppercase()), Some(LetterResult::Empty));
             }
 
-            return result;
+            result
         }
     }
 }
@@ -193,9 +186,8 @@ pub enum GameState {
 
 pub struct GameData {
     pub game_state: GameState,
+    pub answer: String,
     game_options: GameOptions,
-    pub(crate) answer: String,
-
     pub guesses: Vec<Guess>,
 }
 
@@ -205,11 +197,9 @@ impl GameData {
             .random_word()
             .unwrap_or_else(|_| panic!("Failed to get random word"));
 
-        let game_opts = opts.clone();
-
         Self {
             game_state: GameState::Active,
-            game_options: game_opts,
+            game_options: opts.clone(),
             answer: word,
             guesses: Guess::make_vec(opts.word_length, opts.max_guesses),
         }
@@ -297,18 +287,12 @@ impl GameData {
         if result.iter().all(|x| x == &LetterResult::Correct) {
             self.game_state = GameState::Won;
         } else if game_options.max_guesses - guess_idx - 1 > 0 {
-            let mut next_guess = &mut self.guesses[(guess_idx + 1) as usize];
+            let next_guess = &mut self.guesses[(guess_idx + 1) as usize];
             next_guess.state = GuessState::Active;
         } else {
             self.game_state = GameState::Lost;
         }
 
         Ok(self.game_state)
-    }
-
-    fn clear(&mut self) {
-        self.guesses =
-            Guess::make_vec(self.game_options.word_length, self.game_options.max_guesses);
-        self.game_state = GameState::Active;
     }
 }
