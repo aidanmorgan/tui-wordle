@@ -12,6 +12,21 @@ use std::error;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
+
+fn main() {
+    let config = GameOptions::default();
+    let mut wordle = Application::new(config);
+    wordle.new_game();
+
+    let terminal = ratatui::init();
+    if let Err(e) = main_loop(&mut wordle, terminal) {
+        eprintln!("Error in main loop: {}", e);
+    }
+    ratatui::restore();
+}
+
+
+
 #[derive(Debug)]
 enum WordleError {
     NoActiveGame,
@@ -35,18 +50,6 @@ enum ScreenMode {
     Game,
     Options,
     Quit,
-}
-
-fn main() {
-    let config = GameOptions::default();
-    let mut wordle = Application::new(config);
-    wordle.new_game();
-
-    let terminal = ratatui::init();
-    if let Err(e) = main_loop(&mut wordle, terminal) {
-        eprintln!("Error in main loop: {}", e);
-    }
-    ratatui::restore();
 }
 
 struct Application {
@@ -128,7 +131,7 @@ fn step_game(app: &mut Application, terminal: &mut DefaultTerminal) -> Result<()
                         }
                         return Ok(());
                     }
-                    
+
                     if to_insert.is_alphabetic() {
                         game_state.add_letter(to_insert)?;
                     }
@@ -167,11 +170,13 @@ fn step_options(app: &mut Application, terminal: &mut DefaultTerminal) -> Result
                     options_state.apply(&mut app.game_options)?;
                     app.new_game();
                     app.app_state = ScreenMode::Game;
+
                     return Ok(());
                 }
                 KeyCode::Esc => {
                     app.new_game();
                     app.app_state = ScreenMode::Game;
+
                     return Ok(());
                 }
                 KeyCode::Up => {

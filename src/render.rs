@@ -100,6 +100,11 @@ pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameDat
 
     match game_data.game_state {
         GameState::Won => {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Fill(1), Constraint::Percentage(30), Constraint::Fill(1)])
+                .split(content_panel);
+
             frame.render_widget(
                 BigText::builder()
                     .pixel_size(PixelSize::Full)
@@ -107,13 +112,13 @@ pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameDat
                     .lines(vec![Line::from("You Won!".green())])
                     .centered()
                     .build(),
-                content_panel,
+                layout[1],
             );
         }
         GameState::Lost => {
             let layout = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .constraints(vec![Constraint::Fill(1), Constraint::Percentage(30), Constraint::Percentage(30), Constraint::Fill(1)])
                 .split(content_panel);
 
             frame.render_widget(
@@ -122,7 +127,7 @@ pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameDat
                     .lines(vec![Line::from("You Lost!".red())])
                     .centered()
                     .build(),
-                layout[0],
+                layout[1],
             );
 
             frame.render_widget(
@@ -133,7 +138,7 @@ pub fn draw_game(frame: &mut Frame, game_opts: &GameOptions, game_data: &GameDat
                     )])
                     .centered()
                     .build(),
-                layout[1],
+                layout[2],
             );
         }
         _ => {

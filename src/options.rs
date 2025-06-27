@@ -74,7 +74,7 @@ impl OptionData {
 pub fn draw_options(frame: &mut Frame, options_data: &OptionData) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(vec![Constraint::Percentage(48), Constraint::Percentage(47), Constraint::Percentage(5)])
+        .constraints(vec![Constraint::Fill(1), Constraint::Max(10), Constraint::Max(10), Constraint::Fill(1), Constraint::Max(5)])
         .split(frame.area());
 
         frame.render_widget(
@@ -83,7 +83,7 @@ pub fn draw_options(frame: &mut Frame, options_data: &OptionData) {
                 .lines(vec![Line::from(format!("{} - {} Letters", options_data.dictionary_name, options_data.dictionary_length))])
                 .centered()
                 .build(),
-            layout[0]
+            layout[1]
         );
     
         frame.render_widget(
@@ -92,10 +92,10 @@ pub fn draw_options(frame: &mut Frame, options_data: &OptionData) {
                 .lines(vec![Line::from(format!("Guesses: {}", options_data.max_tries))])
                 .centered()
                 .build(),
-            layout[1]
+            layout[2]
         );
 
     let p = Block::default()
         .title(Line::from("Select: Enter, Cancel: ESC, Dictionary: Up/Down, Guesses: Left/Right, Quit: CTRL-Q").left_aligned());
-    frame.render_widget(p, layout[2]);
+    frame.render_widget(p, layout[4]);
 }

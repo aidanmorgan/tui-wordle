@@ -92,6 +92,7 @@ impl Dictionary {
 
         contents
             .iter()
+            .filter(|x| x.len() == self.length as usize)
             .choose(&mut rand::rng())
             .cloned()
             .ok_or(DictionaryError::WordNotFound)
